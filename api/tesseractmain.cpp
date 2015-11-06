@@ -32,6 +32,84 @@
 #include "tprintf.h"
 #include "openclwrapper.h"
 #include "osdetect.h"
+#include "pageiterator.h"
+#include "publictypes.h"
+
+
+void AnalyseLayout_test(tesseract::TessBaseAPI& api, const char* image) {
+	Pix* pix = pixRead(image);
+	if (!pix) {
+		return ;
+	}
+	Pixa* pa = pixaCreate(1);
+	pixaAddPix(pa, pix, L_INSERT);
+
+	api.SetImage(pix);
+	tesseract::PageIterator* it = api.AnalyseLayout();
+
+	int l, t, r, b;
+	Boxa* regions = boxaCreate(0);
+	while (it->BoundingBox(tesseract::RIL_BLOCK, &l, &t, &r, &b)) {
+		boxaAddBox(regions, boxCreate(l,t,r-l,b-t), L_INSERT);
+		while (it->BoundingBox(tesseract::RIL_PARA, &l, &t, &r, &b)) {
+			boxaAddBox(regions, boxCreate(l,t,r-l,b-t), L_INSERT);
+			while (it->BoundingBox(tesseract::RIL_TEXTLINE, &l, &t, &r, &b)) {
+				boxaAddBox(regions, boxCreate(l, t, r-l, b-t), L_INSERT);
+				it->Next(tesseract::RIL_TEXTLINE);
+			}
+			it->Next(tesseract::RIL_PARA);
+		}
+		it->Next(tesseract::RIL_BLOCK);
+	}
+
+	if (!regions)
+		return ;
+	for (int i = 0; i < regions->n; i++) {
+		Box* b = regions->box[i];
+		printf("BoundingBox:%d %d %d %d\n", b->x, b->y, b->w, b->h);
+	}
+
+	char outname[256];
+	strcpy(outname, image);
+	Pix* pixMar = pixDrawBoxa(pix, regions, 3, 0x77777777);
+	char* p = strrchr(outname, '.');
+	if (p) {
+		*p = 0;
+		strcat(outname, "Ana");
+		strcat(outname, strrchr(image, '.'));
+		printf("output filename:%s\n", outname);
+		pixWrite(outname, pixMar, IFF_JFIF_JPEG);
+	}
+}
+
+void test(tesseract::TessBaseAPI& api, const char* image) {
+  Pix* pix = pixRead(image);
+  if (!pix) {
+	  return ;
+  }
+  Pixa* pa = pixaCreate(1);
+  pixaAddPix(pa, pix, L_INSERT);
+
+  api.SetImage(pix);
+  Boxa* regions = api.GetRegions(&pa);
+  if (!regions)
+	  return ;
+  for (int i = 0; i < regions->n; i++) {
+	Box* b = regions->box[i];
+	printf("%d %d %d %d\n", b->x, b->y, b->w, b->h);
+  }
+  Pix* pixMar = pixDrawBoxa(pix, regions, 5, 0x77777777);
+  char outname[256];
+  strcpy(outname, image);
+  char* p = strrchr(outname, '.');
+  if (p) {
+	  *p = 0;
+	  strcat(outname, "Mar");
+	  strcat(outname, strrchr(image, '.'));
+	  printf("output filename:%s\n", outname);
+	  pixWrite(outname, pixMar, IFF_JFIF_JPEG);
+  }
+}
 
 /**********************************************************************
  *  main()
@@ -39,7 +117,6 @@
  **********************************************************************/
 
 int main(int argc, char **argv) {
-	printf("nijun\n");
   if ((argc == 2 && strcmp(argv[1], "-v") == 0) ||
       (argc == 2 && strcmp(argv[1], "--version") == 0)) {
     char *versionStrP;
@@ -228,7 +305,7 @@ int main(int argc, char **argv) {
   }
 
   // We have 2 possible sources of pagesegmode: a config file and
-  // the command line. For backwards compatability reasons, the
+  // the command line. For backwards compatibility reasons, the
   // default in tesseract is tesseract::PSM_SINGLE_BLOCK, but the
   // default for this program is tesseract::PSM_AUTO. We will let
   // the config file take priority, so the command-line default
@@ -318,8 +395,9 @@ int main(int argc, char **argv) {
       fprintf(stderr, "Error during processing.\n");
       exit(1);
     }
+	
   }
-
+  AnalyseLayout_test(api, image);
   PERF_COUNT_END
   return 0;                      // Normal exit
 }
