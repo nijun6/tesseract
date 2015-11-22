@@ -35,12 +35,23 @@
 #include "pageiterator.h"
 #include "publictypes.h"
 
+Pix* pre_process(Pix* pix, int max_size) {
+	int bigger = pix->w > pix->h ? pix->w : pix->h;
+	if (bigger <= max_size) {
+		return pix;
+	}
+	float scale = max_size*1.0 / bigger;
+	Pix* scaled_pix = pixScale(pix, scale, scale);
+	pixDestroy(&pix);
+	return scaled_pix;
+}
 
-void AnalyseLayout_test(tesseract::TessBaseAPI& api, const char* image) {
-	Pix* pix = pixRead(image);
+void AnalyseLayout_test(tesseract::TessBaseAPI& api, const char* image, unsigned int threshold) {
+	Pix* pix = pre_process(pixRead(image), 3000);
 	if (!pix) {
 		return ;
 	}
+
 	Pixa* pa = pixaCreate(1);
 	pixaAddPix(pa, pix, L_INSERT);
 
@@ -50,11 +61,11 @@ void AnalyseLayout_test(tesseract::TessBaseAPI& api, const char* image) {
 	int l, t, r, b;
 	Boxa* regions = boxaCreate(0);
 	while (it->BoundingBox(tesseract::RIL_BLOCK, &l, &t, &r, &b)) {
-		boxaAddBox(regions, boxCreate(l,t,r-l,b-t), L_INSERT);
 		while (it->BoundingBox(tesseract::RIL_PARA, &l, &t, &r, &b)) {
-			boxaAddBox(regions, boxCreate(l,t,r-l,b-t), L_INSERT);
 			while (it->BoundingBox(tesseract::RIL_TEXTLINE, &l, &t, &r, &b)) {
-				boxaAddBox(regions, boxCreate(l, t, r-l, b-t), L_INSERT);
+				if ( 1 || r-l >= b-t) { //abandon height bigger than width
+					boxaAddBox(regions, boxCreate(l, t, r-l, b-t), L_INSERT);
+				}
 				it->Next(tesseract::RIL_TEXTLINE);
 			}
 			it->Next(tesseract::RIL_PARA);
@@ -64,22 +75,54 @@ void AnalyseLayout_test(tesseract::TessBaseAPI& api, const char* image) {
 
 	if (!regions)
 		return ;
+	Pix* pix_gray = pixConvertTo8(pix, 0);
 	for (int i = 0; i < regions->n; i++) {
 		Box* b = regions->box[i];
 		printf("BoundingBox:%d %d %d %d\n", b->x, b->y, b->w, b->h);
+		
+		//feature1: sum of pixel
+		printf("sum of pixel:");
+		for (int x = b->x; x < b->x + b->w; x++) {
+			int sum = 0;
+			for (int y = b->y; y < b->y + b->h; y++) {
+				unsigned int v;
+				pixGetPixel(pix_gray, x, y, &v);
+				sum += 255 - v;
+			}
+			printf(" %d", sum/256);
+		}
+		printf("\n");
+
+		//feature2: word height in this x coordinate
+		printf("height in this x coordinate:");
+		for (int x = b->x; x < b->x + b->w; x++) {
+			int begin = -1, end = -1;
+			for (int y = b->y; y < b->y + b->h; y++) {
+				unsigned int v;
+				pixGetPixel(pix_gray, x, y, &v);
+				if (begin == -1 && v < threshold) 
+					begin = y;
+				if (v < threshold)
+					end = y;
+			}
+			printf(" %d", end - begin);
+		}
+		printf("\n");
 	}
 
 	char outname[256];
 	strcpy(outname, image);
-	Pix* pixMar = pixDrawBoxa(pix, regions, 3, 0x77777777);
+	Pix* pixMar = pixDrawBoxa(pix, regions, 1, 0x00FF0000);
 	char* p = strrchr(outname, '.');
 	if (p) {
 		*p = 0;
 		strcat(outname, "Ana");
-		strcat(outname, strrchr(image, '.'));
+		strcat(outname, ".jpg");
 		printf("output filename:%s\n", outname);
 		pixWrite(outname, pixMar, IFF_JFIF_JPEG);
 	}
+	pixDestroy(&pix);
+	pixDestroy(&pix_gray);
 }
 
 void test(tesseract::TessBaseAPI& api, const char* image) {
@@ -391,13 +434,13 @@ int main(int argc, char **argv) {
       renderers[0]->insert(renderers[r]);
       renderers[r] = NULL;
     }
-    if (!api.ProcessPages(image, NULL, 0, renderers[0])) {
+    /*if (!api.ProcessPages(image, NULL, 0, renderers[0])) {
       fprintf(stderr, "Error during processing.\n");
       exit(1);
-    }
+    }*/
 	
   }
-  AnalyseLayout_test(api, image);
+  AnalyseLayout_test(api, image, 128);
   PERF_COUNT_END
   return 0;                      // Normal exit
 }
