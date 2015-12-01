@@ -36,6 +36,9 @@
 #include "publictypes.h"
 
 Pix* pre_process(Pix* pix, int max_size) {
+	if (NULL == pix) {
+		return NULL;
+	}
 	int bigger = pix->w > pix->h ? pix->w : pix->h;
 	if (bigger <= max_size) {
 		return pix;
@@ -46,8 +49,14 @@ Pix* pre_process(Pix* pix, int max_size) {
 	return scaled_pix;
 }
 
+string getLinesCode(tesseract::TessBaseAPI& api) {
+	Pixa* pa = pixaCreate(1);
+	pixaAddPix(pa, pix, L_INSERT);
+	Boxa* regions = api.GetTextlines(true, 0, &pa, 0, 0);
+}
+
 void AnalyseLayout_test(tesseract::TessBaseAPI& api, const char* image, unsigned int threshold) {
-	Pix* pix = pre_process(pixRead(image), 3000);
+	Pix* pix = pre_process(pixRead(image), 2000);
 	if (!pix) {
 		return ;
 	}
@@ -59,24 +68,27 @@ void AnalyseLayout_test(tesseract::TessBaseAPI& api, const char* image, unsigned
 	tesseract::PageIterator* it = api.AnalyseLayout();
 
 	int l, t, r, b;
-	Boxa* regions = boxaCreate(0);
-	while (it->BoundingBox(tesseract::RIL_BLOCK, &l, &t, &r, &b)) {
+	Boxa* regions = api.GetTextlines(true, 0, &pa, 0, 0);
+	Boxa* symbols = api.GetComponentImages(tesseract::RIL_SYMBOL, true, true, 0, &pa, 0, 0);
+	/*while (it->BoundingBox(tesseract::RIL_BLOCK, &l, &t, &r, &b)) {
 		while (it->BoundingBox(tesseract::RIL_PARA, &l, &t, &r, &b)) {
 			while (it->BoundingBox(tesseract::RIL_TEXTLINE, &l, &t, &r, &b)) {
-				if ( 1 || r-l >= b-t) { //abandon height bigger than width
-					boxaAddBox(regions, boxCreate(l, t, r-l, b-t), L_INSERT);
+				while (it->BoundingBox(tesseract::RIL_WORD, &l, &t, &r, &b)) {
+					//while (it->BoundingBox(tesseract::RIL_SYMBOL, &l, &t, &r, &b)) {
+						boxaAddBox(symbols, boxCreate(l, t, r-l, b-t), L_INSERT);
+					//	it->Next(tesseract::RIL_SYMBOL);
+					//}
+					it->Next(tesseract::RIL_WORD);
 				}
 				it->Next(tesseract::RIL_TEXTLINE);
 			}
 			it->Next(tesseract::RIL_PARA);
 		}
 		it->Next(tesseract::RIL_BLOCK);
-	}
+	}*/ 
 
-	if (!regions)
-		return ;
 	Pix* pix_gray = pixConvertTo8(pix, 0);
-	for (int i = 0; i < regions->n; i++) {
+	for (int i = 0; i < regions->n && 0; i++) {
 		Box* b = regions->box[i];
 		printf("BoundingBox:%d %d %d %d\n", b->x, b->y, b->w, b->h);
 		
@@ -112,7 +124,7 @@ void AnalyseLayout_test(tesseract::TessBaseAPI& api, const char* image, unsigned
 
 	char outname[256];
 	strcpy(outname, image);
-	Pix* pixMar = pixDrawBoxa(pix, regions, 1, 0x00FF0000);
+	Pix* pixMar = pixDrawBoxa(pix, symbols, 1, 0x00FF0000);
 	char* p = strrchr(outname, '.');
 	if (p) {
 		*p = 0;
@@ -154,12 +166,31 @@ void test(tesseract::TessBaseAPI& api, const char* image) {
   }
 }
 
+/*
+	get picture feature main
+	author:nijun
+	date:2015.11.30
+*/
+int main_bak(int argc, char** argv) {
+	if (argc != 2) {
+		fprintf(stderr, "Wrong arguments!\n");
+		return -1;
+	}
+	tesseract::TessBaseAPI api;
+	Pix* pix = pre_process(pixRead(argv[1]), 3000);
+	if (NULL == pix)
+		return -1;
+	api.SetImage(pix);
+	return 0;
+}
+
 /**********************************************************************
  *  main()
  *
  **********************************************************************/
 
 int main(int argc, char **argv) {
+	printf("inijun\n");
   if ((argc == 2 && strcmp(argv[1], "-v") == 0) ||
       (argc == 2 && strcmp(argv[1], "--version") == 0)) {
     char *versionStrP;
